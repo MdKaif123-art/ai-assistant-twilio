@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,8 +13,11 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files from the React app
-app.use(express.static(path.join(__dirname, 'dist')));
+// Check if dist folder exists, if not serve a simple API
+const distPath = path.join(__dirname, 'dist');
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
 // Simple Twilio webhook handlers (no TypeScript compilation needed)
 app.post('/webhook/voice', async (req, res) => {
@@ -119,9 +123,22 @@ app.get('/', (req, res) => {
   });
 });
 
-// Serve React app for all other routes
+// Serve React app for all other routes (only if dist exists)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  if (existsSync(distPath)) {
+    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  } else {
+    res.json({ 
+      message: 'AI Assistant API is running!',
+      note: 'React app not built - API endpoints available',
+      webhooks: {
+        voice: '/webhook/voice',
+        speech: '/webhook/speech',
+        status: '/webhook/status'
+      },
+      phone: '(915) 233-4931'
+    });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {

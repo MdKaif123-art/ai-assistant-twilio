@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: ai-assistant
+    env: node
+    buildCommand: npm run build
+    startCommand: npm run server
+    plan: free 

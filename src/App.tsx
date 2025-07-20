@@ -41,12 +41,13 @@ function App() {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         recognitionRef.current = new SpeechRecognition();
         
-        // Simple configuration
+        // Improved configuration for better reliability
         recognitionRef.current.continuous = false;
         recognitionRef.current.interimResults = false;
         recognitionRef.current.lang = 'en-US';
+        recognitionRef.current.maxAlternatives = 3; // Get multiple alternatives
         
-        // Simple event handlers
+        // Enhanced event handlers
         recognitionRef.current.onstart = () => {
           console.log('🎤 Listening...');
           setStatusMessage('🎤 Listening... Speak now');
@@ -54,10 +55,26 @@ function App() {
 
         recognitionRef.current.onresult = (event) => {
           const transcript = event.results[0][0].transcript;
-          console.log('🎤 Heard:', transcript);
+          const confidence = event.results[0][0].confidence;
+          console.log('🎤 Heard:', transcript, 'Confidence:', confidence);
           
-          // Send to API and get reply
-          handleUserMessage(transcript);
+          // Only process if confidence is reasonable
+          if (confidence > 0.3) {
+            // Send to API and get reply
+            handleUserMessage(transcript);
+          } else {
+            setStatusMessage('🎤 Low confidence - please repeat');
+            // Restart listening
+            setTimeout(() => {
+              if (isCallActive && !isProcessing) {
+                try {
+                  recognitionRef.current?.start();
+                } catch (error) {
+                  console.error('❌ Error restarting after low confidence:', error);
+                }
+              }
+            }, 1000);
+          }
         };
 
         recognitionRef.current.onerror = (event) => {
@@ -74,6 +91,18 @@ function App() {
                   console.error('❌ Error restarting after no-speech:', error);
                 }
               }, 500);
+            }
+          } else if (event.error === 'audio-capture') {
+            setStatusMessage('🎤 Microphone issue - please check permissions');
+            // Try to restart after a longer delay
+            if (isCallActive && !isProcessing) {
+              setTimeout(() => {
+                try {
+                  recognitionRef.current?.start();
+                } catch (error) {
+                  console.error('❌ Error restarting after audio-capture:', error);
+                }
+              }, 2000);
             }
           } else {
             setStatusMessage(`❌ Speech error: ${event.error} - Restarting...`);
@@ -119,8 +148,22 @@ function App() {
 
     initializeSpeechRecognition();
 
-    // Initialize speech synthesis
+    // Initialize speech synthesis with better setup
     synthRef.current = window.speechSynthesis;
+    
+    // Load voices when they become available
+    if (synthRef.current) {
+      const loadVoices = () => {
+        const voices = synthRef.current?.getVoices() || [];
+        console.log('🔊 Available voices:', voices.map(v => `${v.name} (${v.lang})`));
+      };
+      
+      // Load voices immediately if available
+      loadVoices();
+      
+      // Also listen for voices to load
+      synthRef.current.onvoiceschanged = loadVoices;
+    }
 
     return () => {
       recognitionRef.current?.stop();
@@ -206,6 +249,12 @@ function App() {
     recognitionRef.current?.stop();
   };
 
+  const testVoice = () => {
+    const testText = "Hello! This is a test of the female voice. Can you hear me clearly?";
+    console.log('🧪 Testing voice synthesis...');
+    speakText(testText);
+  };
+
   const speakText = (text: string) => {
     if (synthRef.current) {
       setIsSpeaking(true);
@@ -225,21 +274,34 @@ function App() {
       // Get available voices and select the best female voice
       const voices = synthRef.current.getVoices();
       
-      // Wait for voices to load if not available
+      // If voices are not loaded yet, wait for them
       if (voices.length === 0) {
+        console.log('🔊 Waiting for voices to load...');
         synthRef.current.onvoiceschanged = () => {
           const availableVoices = synthRef.current?.getVoices() || [];
+          console.log('🔊 Voices loaded:', availableVoices.length);
           selectBestFemaleVoice(utterance, availableVoices);
+          // Start speaking after voice is selected
+          try {
+            synthRef.current?.speak(utterance);
+          } catch (error) {
+            console.error('❌ Error starting speech after voice load:', error);
+            setIsSpeaking(false);
+            setStatusMessage('❌ Speech error - Listening...');
+          }
         };
+        return; // Don't speak yet, wait for voices
       } else {
         selectBestFemaleVoice(utterance, voices);
       }
       
       utterance.onstart = () => {
+        console.log('🔊 Speech started');
         setStatusMessage('🔊 AI is speaking...');
       };
       
       utterance.onend = () => {
+        console.log('🔊 Speech ended');
         setIsSpeaking(false);
         setStatusMessage('🎤 Listening... Speak now');
         
@@ -258,6 +320,7 @@ function App() {
       };
       
       utterance.onerror = (event) => {
+        console.error('🔊 Speech error:', event.error);
         setIsSpeaking(false);
         setStatusMessage('🎤 Listening... Speak now');
         
@@ -277,16 +340,21 @@ function App() {
       
       try {
         synthRef.current.speak(utterance);
+        console.log('🔊 Speech queued successfully');
       } catch (error) {
+        console.error('❌ Error starting speech:', error);
         setIsSpeaking(false);
         setStatusMessage('❌ Speech error - Listening...');
       }
     } else {
+      console.error('❌ Speech synthesis not available');
       setStatusMessage('❌ Speech not available - Listening...');
     }
   };
 
   const selectBestFemaleVoice = (utterance: SpeechSynthesisUtterance, voices: SpeechSynthesisVoice[]) => {
+    console.log('🔊 Selecting voice from', voices.length, 'available voices');
+    
     // Priority list for female voices
     const femaleVoiceNames = [
       'Samantha',           // Apple's female voice
@@ -308,7 +376,10 @@ function App() {
         voice.lang.includes('en') && 
         voice.name.includes(voiceName)
       );
-      if (selectedVoice) break;
+      if (selectedVoice) {
+        console.log('🔊 Found preferred female voice:', selectedVoice.name);
+        break;
+      }
     }
     
     // If no specific female voice found, find any English female voice
@@ -319,15 +390,24 @@ function App() {
          voice.name.toLowerCase().includes('woman') ||
          voice.name.toLowerCase().includes('girl'))
       );
+      if (selectedVoice) {
+        console.log('🔊 Found generic female voice:', selectedVoice.name);
+      }
     }
     
     // Fallback to any English voice
     if (!selectedVoice) {
       selectedVoice = voices.find(voice => voice.lang.includes('en'));
+      if (selectedVoice) {
+        console.log('🔊 Using fallback English voice:', selectedVoice.name);
+      }
     }
     
     if (selectedVoice) {
       utterance.voice = selectedVoice;
+      console.log('🔊 Voice selected:', selectedVoice.name, 'Language:', selectedVoice.lang);
+    } else {
+      console.warn('⚠️ No suitable voice found, using default');
     }
   };
 
@@ -373,6 +453,14 @@ function App() {
                     >
                       <Phone className="w-5 h-5" />
                       <span>Start AI Conversation</span>
+                    </button>
+                    
+                    <button
+                      onClick={testVoice}
+                      className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white py-3 px-6 rounded-xl font-semibold transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg hover:shadow-xl"
+                    >
+                      <Bot className="w-4 h-4" />
+                      <span>Test Female Voice</span>
                     </button>
                   </div>
                 ) : (

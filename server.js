@@ -97,7 +97,26 @@ app.post('/webhook/status', (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'AI Assistant Server is running' });
+  res.json({ 
+    status: 'OK', 
+    message: 'AI Assistant Server is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Root endpoint to wake up the service
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'AI Assistant is running!',
+    status: 'active',
+    webhooks: {
+      voice: '/webhook/voice',
+      speech: '/webhook/speech',
+      status: '/webhook/status'
+    },
+    phone: '(915) 233-4931'
+  });
 });
 
 // Serve React app for all other routes
@@ -105,7 +124,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📞 Twilio webhooks available at:`);
   console.log(`   - Voice: http://localhost:${PORT}/webhook/voice`);
